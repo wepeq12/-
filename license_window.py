@@ -166,6 +166,24 @@ class LookupWorker(QThread):
     def run(self):
         self.result.emit(lookup_account(self.identifier))
 
+class _PaymentWorker(QThread):
+    result = Signal(dict)
+    def __init__(self, plan, duration, contact):
+        super().__init__()
+        self.plan = plan
+        self.duration = duration
+        self.contact = contact
+    def run(self):
+        try:
+            r = _req.post(
+                f"{SERVER_URL}/create_payment",
+                json={"plan": self.plan, "duration": self.duration, "contact": self.contact},
+                timeout=15
+            )
+            self.result.emit(r.json())
+        except Exception as e:
+            self.result.emit({"error": str(e)})
+
 # ──────────────────────────────────────────────
 # MAIN LICENSE DIALOG
 # ──────────────────────────────────────────────
@@ -426,27 +444,39 @@ class LicenseDialog(QDialog):
         self._price_label.setText(f"💰 {plan['name']} | {dur_label} | ${price} USDT")
 
     def _do_buy(self):
-        tg = self._tg_input.text().strip().lstrip("@")
+        tg    = self._tg_input.text().strip().lstrip("@")
         gmail = self._gmail_input.text().strip()
         if not tg and not gmail:
-            QMessageBox.warning(self, "⚠️", "הכנס שם משתמש טלגרם או כתובת Gmail לקבלת המפתח")
+            QMessageBox.warning(self, "⚠️", "הכנס שם משתמש טלגרם או כתובת Gmail")
             return
-        plan = self._selected_plan
-        dur  = self._selected_duration
-        price = PLANS[plan][f"price_{dur}"]
         contact = tg or gmail
-        # בנה URL לתשלום
-        url = f"{NOWPAYMENTS_STORE_URL}&order_description={plan}|{dur}|{contact}&pay_amount={price}&pay_currency=USDTTRC20"
-        webbrowser.open(url)
-        # הצג הנחיות
-        QMessageBox.information(self, "💳 תשלום קריפטו",
-            f"נפתח דף תשלום בדפדפן שלך.\n\n"
-            f"📦 תוכנית: {PLANS[plan]['name']} | {DURATIONS[dur][0]}\n"
-            f"💰 סכום: ${price} USDT\n\n"
-            f"⚡ אחרי אישור התשלום תקבל מפתח לטלגרם / Gmail שלך.\n"
-            f"לאחר קבלת המפתח לחץ על 'יש לי מפתח' בצד שמאל."
-        )
-        self._switch_page("activate")
+        plan    = self._selected_plan
+        dur     = self._selected_duration
+        price   = PLANS[plan][f"price_{dur}"]
+
+        self._buy_btn.setEnabled(False)
+        self._buy_btn.setText("⏳ יוצר קישור תשלום...")
+
+        self._pay_worker = _PaymentWorker(plan, dur, contact)
+        self._pay_worker.result.connect(self._on_payment_created)
+        self._pay_worker.start()
+
+    def _on_payment_created(self, result: dict):
+        self._buy_btn.setEnabled(True)
+        self._buy_btn.setText("💎 קנה עכשיו — שלם בקריפטו")
+        if result.get("success"):
+            url = result["payment_url"]
+            webbrowser.open(url)
+            QMessageBox.information(self, "💳 תשלום קריפטו",
+                f"נפתח דף תשלום ייחודי שלך בדפדפן!\n\n"
+                f"📦 תוכנית: {PLANS[self._selected_plan]['name']} | {DURATIONS[self._selected_duration][0]}\n"
+                f"💰 סכום: ${PLANS[self._selected_plan][f'price_{self._selected_duration}']} USDT\n\n"
+                f"⚡ אחרי אישור התשלום תקבל מפתח לטלגרם/Gmail שלך.\n"
+                f"לאחר מכן לחץ 'יש לי מפתח' בצד שמאל."
+            )
+            self._switch_page("activate")
+        else:
+            QMessageBox.critical(self, "❌ שגיאה", f"לא ניתן ליצור קישור תשלום:\n{result.get('error','')}\n\nצור קשר: @experu_support")
 
     # ═══════════════════════════════════════════
     # דף הפעלת מפתח
