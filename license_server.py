@@ -220,6 +220,31 @@ def root():
 def health():
     return {"status": "ok", "time": now_str()}
 
+# ── חיפוש חשבון קיים (לדף login) ───────────
+@app.post("/lookup")
+async def lookup_account(request: Request):
+    data = await request.json()
+    identifier = data.get("identifier", "").strip().lstrip("@").lower()
+    if not identifier:
+        return {"found": False}
+    db = get_db()
+    # חיפוש לפי telegram_id או email
+    row = db.execute(
+        "SELECT key, plan, expires_at, active FROM licenses WHERE (LOWER(telegram_id)=? OR LOWER(email)=?) AND active=1 ORDER BY expires_at DESC LIMIT 1",
+        (identifier, identifier)
+    ).fetchone()
+    db.close()
+    if not row:
+        return {"found": False}
+    expires = datetime.datetime.fromisoformat(row["expires_at"])
+    days_left = max(0, (expires - datetime.datetime.utcnow()).days)
+    return {
+        "found": True,
+        "plan": row["plan"],
+        "days_left": days_left,
+        "key_hint": row["key"][:14] + "...",  # רמז בלבד — לא המפתח המלא
+    }
+
 # ── אימות רישיון (קריאה מהתוכנה) ──────────────
 @app.post("/verify")
 async def verify_license(req: VerifyRequest, request: Request):
