@@ -252,7 +252,7 @@ async def create_payment(request: Request):
                     "pay_currency":   "usdttrc20",
                     "order_id":       f"{plan}-{duration}-{contact}-{uuid.uuid4().hex[:8]}",
                     "order_description": f"{plan}|{duration}|{contact}",
-                    "ipn_callback_url": f"{os.getenv('LICENSE_SERVER_URL','')}/webhook/nowpayments",
+                    "ipn_callback_url": "https://lucid-strength-production.up.railway.app/webhook/nowpayments",
                     "success_url": "https://t.me/experu_support",
                     "cancel_url":  "https://t.me/experu_support",
                 },
