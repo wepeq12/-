@@ -26,6 +26,7 @@ from pathlib import Path
 ADMIN_SECRET      = os.getenv("ADMIN_SECRET",   "CHANGE_ME_ADMIN_SECRET")
 STRIPE_SECRET     = os.getenv("STRIPE_SECRET",   "")          # מ-Stripe Dashboard
 NOWPAY_IPN_SECRET = os.getenv("NOWPAY_IPN_SECRET", "")        # מ-NOWPayments
+NOWPAY_API_KEY    = os.getenv("NOWPAY_API_KEY",    "")        # מ-NOWPayments → API Keys
 TELEGRAM_BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN", "")
 ADMIN_TELEGRAM_ID  = os.getenv("ADMIN_TELEGRAM_ID",  "")      # ה-chat_id שלך
 APP_SECRET        = os.getenv("APP_SECRET",      "experu_tg_secret_2025")  # סוד פנימי
@@ -219,6 +220,52 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok", "time": now_str()}
+
+# ── יצירת קישור תשלום דינמי (NOWPayments API) ──
+@app.post("/create_payment")
+async def create_payment(request: Request):
+    """יוצר קישור תשלום ייחודי לכל לקוח דרך NOWPayments API"""
+    data = await request.json()
+    plan     = data.get("plan", "basic")
+    duration = data.get("duration", "1m")
+    contact  = data.get("contact", "")  # טלגרם או Gmail
+
+    plan_info = PLANS.get(plan, PLANS["basic"])
+    price     = plan_info.get(f"price_{duration}", 15)
+    days      = DURATIONS.get(duration, 30)
+
+    if not NOWPAY_API_KEY:
+        return {"error": "NOWPayments API key not configured"}
+
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient() as c:
+            r = await c.post(
+                "https://api.nowpayments.io/v1/invoice",
+                headers={
+                    "x-api-key": NOWPAY_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "price_amount":   price,
+                    "price_currency": "usd",
+                    "pay_currency":   "usdttrc20",
+                    "order_id":       f"{plan}-{duration}-{contact}-{uuid.uuid4().hex[:8]}",
+                    "order_description": f"{plan}|{duration}|{contact}",
+                    "ipn_callback_url": f"{os.getenv('LICENSE_SERVER_URL','')}/webhook/nowpayments",
+                    "success_url": "https://t.me/experu_support",
+                    "cancel_url":  "https://t.me/experu_support",
+                },
+                timeout=10
+            )
+            result = r.json()
+
+        if "invoice_url" in result:
+            return {"success": True, "payment_url": result["invoice_url"], "amount": price}
+        else:
+            return {"error": str(result)}
+    except Exception as e:
+        return {"error": str(e)}
 
 # ── חיפוש חשבון קיים (לדף login) ───────────
 @app.post("/lookup")
