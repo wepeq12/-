@@ -37,6 +37,14 @@ DB_PATH = Path(os.getenv("DB_PATH", "licenses.db"))
 # תוכניות
 # ──────────────────────────────────────────────
 PLANS = {
+    "trial": {
+        "name": "Trial",
+        "max_clients": 999,
+        "max_sessions": 999,
+        "multi_client": True,
+        "features": ["all"],
+        "price_monthly": 0,
+    },
     "basic": {
         "name": "Basic",
         "max_clients": 1,
@@ -72,11 +80,19 @@ PLANS = {
     },
 }
 
+PLAN_PRICES = {
+    "basic":    {"1m":15,  "3m":40,  "6m":70,  "1y":120},
+    "pro":      {"1m":35,  "3m":90,  "6m":160, "1y":280},
+    "business": {"1m":70,  "3m":180, "6m":320, "1y":560},
+    "ultimate": {"1m":120, "3m":300, "6m":550, "1y":950},
+}
+
 DURATIONS = {
     "1m":  30,
     "3m":  90,
     "6m":  180,
     "1y":  365,
+    "14d": 14,
 }
 
 # ──────────────────────────────────────────────
@@ -172,6 +188,15 @@ async def notify_customer(telegram_id: str, msg: str):
     except Exception:
         pass
 
+async def _send_key_telegram(telegram_id: str, key: str, plan: str, duration: str):
+    await notify_customer(telegram_id,
+        f"🎉 <b>הרישיון שלך מוכן!</b>\n\n"
+        f"📦 תוכנית: <b>{plan}</b> | {duration}\n\n"
+        f"🔐 <b>מפתח גישה:</b>\n<code>{key}</code>\n\n"
+        f"הכנס את המפתח בחלון הרישיון של Experu TG.\n"
+        f"❓ שאלות: @experu_support"
+    )
+
 # ──────────────────────────────────────────────
 # APP
 # ──────────────────────────────────────────────
@@ -217,6 +242,45 @@ class StripeWebhook(BaseModel):
 def root():
     return {"status": "ok", "service": "Experu TG License Server"}
 
+# ── ניסיון חינם 14 ימים ───────────────────────
+@app.post("/trial")
+async def create_trial(request: Request):
+    data = await request.json()
+    contact = data.get("contact", "").strip().lstrip("@").lower()
+    hwid    = data.get("hwid", "")
+    if not contact:
+        return {"success": False, "error": "missing_contact"}
+    db = get_db()
+    # בדוק שלא השתמש כבר בניסיון
+    existing = db.execute(
+        "SELECT id FROM licenses WHERE plan='trial' AND (LOWER(telegram_id)=? OR LOWER(email)=? OR hwid=?)",
+        (contact, contact, hwid)
+    ).fetchone()
+    if existing:
+        db.close()
+        return {"success": False, "error": "already_used"}
+    # צור מפתח ניסיון
+    key = generate_key()
+    expires = datetime.datetime.utcnow() + datetime.timedelta(days=14)
+    plan_cfg = PLANS["trial"]
+    db.execute("""INSERT INTO licenses
+        (key, plan, duration, telegram_id, email, features, max_clients, max_sessions,
+         multi_client, expires_at, active, note)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (key, "trial", "14d",
+         contact if not "@" in contact else "",
+         contact if "@" in contact else "",
+         json.dumps(plan_cfg["features"]),
+         plan_cfg["max_clients"], plan_cfg["max_sessions"],
+         1 if plan_cfg["multi_client"] else 0,
+         expires.isoformat(), 1, "Free trial auto-created")
+    )
+    db.commit(); db.close()
+    # שלח בטלגרם אם אפשר
+    if TELEGRAM_BOT_TOKEN and not "@" in contact:
+        asyncio.create_task(_send_key_telegram(contact, key, "trial", "14 ימים"))
+    return {"success": True, "license_key": key, "expires_at": expires.isoformat()}
+
 @app.get("/health")
 def health():
     return {"status": "ok", "time": now_str()}
@@ -228,11 +292,13 @@ async def create_payment(request: Request):
     data = await request.json()
     plan     = data.get("plan", "basic")
     duration = data.get("duration", "1m")
-    contact  = data.get("contact", "")  # טלגרם או Gmail
+    contact  = data.get("contact", "")
 
-    plan_info = PLANS.get(plan, PLANS["basic"])
-    price     = plan_info.get(f"price_{duration}", 15)
-    days      = DURATIONS.get(duration, 30)
+    if plan not in PLAN_PRICES:
+        return {"error": "invalid_plan"}
+
+    # מחיר מדויק לפי תוכנית ותקופה — לא ניתן לשנות
+    price = PLAN_PRICES[plan].get(duration, PLAN_PRICES[plan]["1m"])
 
     if not NOWPAY_API_KEY:
         return {"error": "NOWPayments API key not configured"}
@@ -242,24 +308,20 @@ async def create_payment(request: Request):
         async with _httpx.AsyncClient() as c:
             r = await c.post(
                 "https://api.nowpayments.io/v1/invoice",
-                headers={
-                    "x-api-key": NOWPAY_API_KEY,
-                    "Content-Type": "application/json"
-                },
+                headers={"x-api-key": NOWPAY_API_KEY, "Content-Type": "application/json"},
                 json={
-                    "price_amount":   price,
-                    "price_currency": "usd",
-                    "pay_currency":   "usdttrc20",
-                    "order_id":       f"{plan}-{duration}-{contact}-{uuid.uuid4().hex[:8]}",
+                    "price_amount":      price,
+                    "price_currency":    "usd",
+                    "pay_currency":      "usdttrc20",
+                    "order_id":          f"{plan}-{duration}-{uuid.uuid4().hex[:8]}",
                     "order_description": f"{plan}|{duration}|{contact}",
-                    "ipn_callback_url": "https://lucid-strength-production.up.railway.app/webhook/nowpayments",
+                    "ipn_callback_url":  "https://lucid-strength-production.up.railway.app/webhook/nowpayments",
                     "success_url": "https://t.me/experu_support",
                     "cancel_url":  "https://t.me/experu_support",
                 },
                 timeout=10
             )
             result = r.json()
-
         if "invoice_url" in result:
             return {"success": True, "payment_url": result["invoice_url"], "amount": price}
         else:
