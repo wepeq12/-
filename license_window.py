@@ -11,10 +11,10 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget, QLabel,
     QPushButton, QLineEdit, QStackedWidget, QFrame,
-    QMessageBox, QApplication
+    QScrollArea, QGridLayout, QMessageBox, QApplication
 )
-from PySide6.QtCore import Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, QTimer, QThread, Signal, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QFont, QColor, QLinearGradient, QPalette, QPixmap, QIcon
 
 try:
     import requests as _req
@@ -23,518 +23,879 @@ except ImportError:
     REQUESTS_OK = False
 
 # ──────────────────────────────────────────────
-SERVER_URL      = "https://lucid-strength-production.up.railway.app"
-LICENSE_FILE    = Path(__file__).parent / "license.key"
-CACHE_FILE      = Path(__file__).parent / ".lic_cache"
+# CONFIG
+# ──────────────────────────────────────────────
+SERVER_URL   = "https://lucid-strength-production.up.railway.app"
+LICENSE_FILE = Path(__file__).parent / "license.key"
+CACHE_FILE   = Path(__file__).parent / ".lic_cache"
 CACHE_TTL_HOURS = 12
 
+NOWPAYMENTS_STORE_URL = "https://lucid-strength-production.up.railway.app/webhook/nowpayments"  # ← תחליף אחרי שתפתח NOWPayments
+
 PLANS = {
-    "trial": {
-        "name": "ניסיון חינם",
-        "emoji": "🎁",
-        "color": "#10b981",
-        "price_1m": 0, "price_3m": 0, "price_6m": 0, "price_1y": 0,
-        "features": ["✅ גישה מלאה", "✅ כל הפיצ'רים", "✅ 14 ימים בלבד", "❌ לא מתחדש"],
-        "trial": True,
-    },
-    "basic": {
-        "name": "Basic",
-        "emoji": "🥉",
+    "starter": {
+        "name": "Starter",
+        "name_he": "מתחיל",
+        "emoji": "🔰",
         "color": "#64748b",
-        "price_1m": 15, "price_3m": 40, "price_6m": 70, "price_1y": 120,
-        "features": ["✅ לקוח 1", "✅ 2 סשנים", "✅ הוספה & שליחה", "❌ Multi-client", "❌ AI Agent"],
+        "sessions": 5,
+        "trial": True,
+        # מחירי ILS
+        "price_1m": 290,  "price_3m": 750,  "price_6m": 1300, "price_1y": 2200,
+        # מחירי USD (לעיבוד תשלום)
+        "usd_1m": 79,     "usd_3m": 202,    "usd_6m": 351,    "usd_1y": 594,
+        "features": [
+            "✅ 5 סשנים (חשבונות)",
+            "✅ סורק קבוצות בסיסי",
+            "✅ גירוד משתמשים",
+            "✅ הוספת חברים (Adder)",
+            "✅ שליחה המונית בסיסית",
+            "✅ Anti-Ban בסיסי",
+            "❌ Sniper Mode",
+            "❌ AI Control Bot",
+            "❌ Multi-Client",
+        ],
     },
     "pro": {
         "name": "Pro",
-        "emoji": "🥈",
-        "color": "#3b82f6",
-        "price_1m": 35, "price_3m": 90, "price_6m": 160, "price_1y": 280,
-        "features": ["✅ 3 לקוחות", "✅ 10 סשנים", "✅ Multi-client", "✅ AI Agent", "✅ בוט"],
+        "name_he": "מקצוען",
+        "emoji": "🚀",
+        "color": "#22d3b0",
+        "sessions": 25,
         "popular": True,
+        "price_1m": 590,  "price_3m": 1500, "price_6m": 2700, "price_1y": 4800,
+        "usd_1m": 159,    "usd_3m": 405,    "usd_6m": 729,    "usd_1y": 1296,
+        "features": [
+            "✅ 25 סשנים (חשבונות)",
+            "✅ סורק קבוצות מתקדם",
+            "✅ תמיכה מלאה ב-Proxy",
+            "✅ Device Fingerprint",
+            "⚡ Sniper Mode",
+            "⚡ AI Control Bot (Gemini)",
+            "✅ Group Warmup (SEO)",
+            "✅ לולאת 24 שעות",
+            "❌ Multi-Client",
+        ],
     },
-    "business": {
-        "name": "Business",
-        "emoji": "🥇",
-        "color": "#f59e0b",
-        "price_1m": 70, "price_3m": 180, "price_6m": 320, "price_1y": 560,
-        "features": ["✅ לקוחות ∞", "✅ סשנים ∞", "✅ כל הפיצ'רים", "✅ תמיכה מהירה", "✅ עדכונים"],
+    "agency": {
+        "name": "Agency",
+        "name_he": "סוכנות",
+        "emoji": "💼",
+        "color": "#a78bfa",
+        "sessions": 50,
+        "orig_1m": 1200,
+        "price_1m": 790,  "price_3m": 1950, "price_6m": 3600, "price_1y": 6200,
+        "usd_1m": 213,    "usd_3m": 527,    "usd_6m": 972,    "usd_1y": 1674,
+        "features": [
+            "✅ 50 סשנים (חשבונות)",
+            "✅ הכל מ-Pro",
+            "⚡ Multi-Client Dashboard",
+            "✅ בידוד מלא בין לקוחות",
+            "✅ Mass Reporting",
+            "✅ בוט שליטה לכל לקוח",
+            "✅ Number Checker מתקדם",
+            "✅ עדיפות בתמיכה",
+        ],
     },
-    "ultimate": {
-        "name": "Ultimate",
-        "emoji": "💎",
-        "color": "#a855f7",
-        "price_1m": 120, "price_3m": 300, "price_6m": 550, "price_1y": 950,
-        "features": ["✅ הכל מ-Business", "✅ תמיכה עדיפות", "✅ הגדרה אישית", "✅ API גישה", "✅ וויטלייבל"],
+    "elite": {
+        "name": "Elite",
+        "name_he": "עילית",
+        "emoji": "👑",
+        "color": "#f0c040",
+        "sessions": 100,
+        "unlimited": True,
+        "orig_1m": 2500,
+        "price_1m": 1350, "price_3m": 3400, "price_6m": 6200, "price_1y": 10500,
+        "usd_1m": 365,    "usd_3m": 918,    "usd_6m": 1674,   "usd_1y": 2835,
+        "features": [
+            "✅ 100+ סשנים ללא הגבלה",
+            "✅ הכל מ-Agency",
+            "⚡ AI הכי מתקדם (Gemini Pro)",
+            "✅ כל העדכונים העתידיים",
+            "✅ תמיכה VIP ישירה",
+            "✅ גישה ל-Beta פיצ'רים",
+            "✅ SLA 99.9% uptime",
+            "✅ Onboarding אישי",
+        ],
     },
+}
+
+LIFETIME = {
+    "name": "Lifetime",
+    "name_he": "לנצח",
+    "emoji": "♾️",
+    "color": "#f0c040",
+    "price_ils": 7000,
+    "price_usd": 1890,
+    "orig_ils": 14000,
+    "features": [
+        "⚡ כל הפיצ'רים לנצח",
+        "⚡ סשנים ללא הגבלה",
+        "✅ כל העדכונים לעולם",
+        "✅ תמיכה VIP ישירה",
+        "✅ Beta גישה מוקדמת",
+        "✅ Onboarding אישי",
+    ],
 }
 
 DURATIONS = {
-    "1m": ("חודש 1",   1),
-    "3m": ("3 חודשים", 3),
-    "6m": ("חצי שנה",  6),
-    "1y": ("שנה",     12),
+    "1m":  ("חודש 1",     1),
+    "3m":  ("3 חודשים",   3),
+    "6m":  ("חצי שנה",    6),
+    "1y":  ("שנה",       12),
 }
 
+# ──────────────────────────────────────────────
+# HWID
 # ──────────────────────────────────────────────
 def get_hwid() -> str:
     parts = [platform.node(), platform.machine(), platform.processor(), str(uuid.getnode())]
     return hashlib.sha256("|".join(parts).encode()).hexdigest()[:32]
 
+# ──────────────────────────────────────────────
+# LICENSE CHECK
+# ──────────────────────────────────────────────
 class LicenseResult:
     def __init__(self, valid=False, plan="", plan_info=None, expires_at="",
                  days_left=0, reason="", features=None,
                  max_clients=1, max_sessions=2, multi_client=False):
-        self.valid=valid; self.plan=plan; self.plan_info=plan_info or {}
-        self.expires_at=expires_at; self.days_left=days_left; self.reason=reason
-        self.features=features or []; self.max_clients=max_clients
-        self.max_sessions=max_sessions; self.multi_client=multi_client
+        self.valid        = valid
+        self.plan         = plan
+        self.plan_info    = plan_info or {}
+        self.expires_at   = expires_at
+        self.days_left    = days_left
+        self.reason       = reason
+        self.features     = features or []
+        self.max_clients  = max_clients
+        self.max_sessions = max_sessions
+        self.multi_client = multi_client
+
     def has_feature(self, f): return "all" in self.features or f in self.features
     def __bool__(self): return self.valid
 
-def _load_cache():
+def _load_cache() -> Optional[LicenseResult]:
     try:
         if not CACHE_FILE.exists(): return None
         data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
         cached_at = datetime.datetime.fromisoformat(data["cached_at"])
-        if (datetime.datetime.utcnow()-cached_at).total_seconds() > CACHE_TTL_HOURS*3600: return None
-        return LicenseResult(**{k:v for k,v in data.items() if k!="cached_at"})
-    except: return None
+        if (datetime.datetime.utcnow() - cached_at).total_seconds() > CACHE_TTL_HOURS * 3600:
+            return None
+        return LicenseResult(**{k: v for k, v in data.items() if k != "cached_at"})
+    except Exception:
+        return None
 
-def _save_cache(r):
+def _save_cache(r: LicenseResult):
     try:
-        data = {k:getattr(r,k) for k in ["valid","plan","plan_info","expires_at","days_left","features","max_clients","max_sessions","multi_client"]}
+        data = {k: getattr(r, k) for k in ["valid","plan","plan_info","expires_at","days_left","features","max_clients","max_sessions","multi_client"]}
         data["cached_at"] = datetime.datetime.utcnow().isoformat()
         CACHE_FILE.write_text(json.dumps(data), encoding="utf-8")
-    except: pass
+    except Exception:
+        pass
 
-def check_license(key=None):
+def check_license(key: str = None) -> LicenseResult:
     if not key:
         key = LICENSE_FILE.read_text(encoding="utf-8").strip() if LICENSE_FILE.exists() else os.getenv("EXPERU_LICENSE_KEY")
-    if not key: return LicenseResult(False, reason="no_key")
+    if not key:
+        return LicenseResult(False, reason="no_key")
+    hwid = get_hwid()
     if not REQUESTS_OK:
-        c=_load_cache(); return c or LicenseResult(False, reason="no_requests")
+        c = _load_cache()
+        return c or LicenseResult(False, reason="no_requests")
     try:
-        r = _req.post(f"{SERVER_URL}/verify", json={"license_key":key,"hwid":get_hwid()}, timeout=8)
+        r = _req.post(f"{SERVER_URL}/verify", json={"license_key": key, "hwid": hwid}, timeout=8)
         d = r.json()
-    except:
-        c=_load_cache(); return c or LicenseResult(False, reason="no_connection")
-    res = LicenseResult(valid=d.get("valid",False),plan=d.get("plan",""),
-        plan_info=d.get("plan_info",{}),expires_at=d.get("expires_at",""),
-        days_left=d.get("days_left",0),reason=d.get("reason",""),
-        features=d.get("features",[]),max_clients=d.get("max_clients",1),
-        max_sessions=d.get("max_sessions",2),multi_client=d.get("multi_client",False))
-    if res.valid: LICENSE_FILE.write_text(key,encoding="utf-8"); _save_cache(res)
+    except Exception:
+        c = _load_cache()
+        return c or LicenseResult(False, reason="no_connection")
+    res = LicenseResult(**{k: d.get(k, LicenseResult.__init__.__defaults__[i]) for i, k in enumerate(["valid","plan","plan_info","expires_at","days_left","reason","features","max_clients","max_sessions","multi_client"])})
+    if res.valid:
+        LICENSE_FILE.write_text(key, encoding="utf-8")
+        _save_cache(res)
     return res
 
-# ── Workers ──
+def lookup_account(identifier: str) -> dict:
+    """מחפש חשבון קיים לפי שם משתמש טלגרם או Gmail"""
+    try:
+        r = _req.post(f"{SERVER_URL}/lookup", json={"identifier": identifier}, timeout=8)
+        return r.json()
+    except Exception:
+        return {"found": False, "error": "no_connection"}
+
+# ──────────────────────────────────────────────
+# WORKER THREAD
+# ──────────────────────────────────────────────
 class LicenseCheckWorker(QThread):
     result = Signal(object)
-    def __init__(self, key): super().__init__(); self.key=key
-    def run(self): self.result.emit(check_license(self.key))
+    def __init__(self, key):
+        super().__init__()
+        self.key = key
+    def run(self):
+        self.result.emit(check_license(self.key))
+
+class LookupWorker(QThread):
+    result = Signal(dict)
+    def __init__(self, identifier):
+        super().__init__()
+        self.identifier = identifier
+    def run(self):
+        self.result.emit(lookup_account(self.identifier))
 
 class _PaymentWorker(QThread):
     result = Signal(dict)
     def __init__(self, plan, duration, contact):
-        super().__init__(); self.plan=plan; self.duration=duration; self.contact=contact
+        super().__init__()
+        self.plan = plan
+        self.duration = duration
+        self.contact = contact
     def run(self):
         try:
-            r=_req.post(f"{SERVER_URL}/create_payment",
-                json={"plan":self.plan,"duration":self.duration,"contact":self.contact},timeout=15)
+            r = _req.post(
+                f"{SERVER_URL}/create_payment",
+                json={"plan": self.plan, "duration": self.duration, "contact": self.contact},
+                timeout=15
+            )
             self.result.emit(r.json())
-        except Exception as e: self.result.emit({"error":str(e)})
-
-class _TrialWorker(QThread):
-    result = Signal(dict)
-    def __init__(self, contact): super().__init__(); self.contact=contact
-    def run(self):
-        try:
-            r=_req.post(f"{SERVER_URL}/trial",
-                json={"contact":self.contact,"hwid":get_hwid()},timeout=10)
-            self.result.emit(r.json())
-        except Exception as e: self.result.emit({"error":str(e)})
+        except Exception as e:
+            self.result.emit({"error": str(e)})
 
 # ──────────────────────────────────────────────
-# DIALOG
+# MAIN LICENSE DIALOG
 # ──────────────────────────────────────────────
 class LicenseDialog(QDialog):
-    license_accepted = Signal(object)
+    license_accepted = Signal(object)  # LicenseResult
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("🔐 Experu TG — רישיון")
-        self.setFixedSize(880, 640)
+        self.setFixedSize(820, 620)
         self.setStyleSheet("""
-            QDialog{background:#080b12;color:#e2e8f0;}
-            QLabel{color:#e2e8f0;border:none;background:transparent;}
-            QLineEdit{background:#111827;color:#e2e8f0;border:1px solid #1e2d45;
-                border-radius:8px;padding:10px 14px;font-size:13px;}
-            QLineEdit:focus{border:1px solid #3b82f6;}
-            QPushButton{border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;}
+            QDialog { background: #080b12; color: #e2e8f0; }
+            QLabel  { color: #e2e8f0; border: none; background: transparent; }
+            QLineEdit {
+                background: #111827; color: #e2e8f0;
+                border: 1px solid #1e2d45; border-radius: 8px;
+                padding: 10px 14px; font-size: 13px;
+            }
+            QLineEdit:focus { border: 1px solid #3b82f6; }
+            QPushButton {
+                border-radius: 8px; padding: 10px 20px;
+                font-size: 13px; font-weight: 700;
+            }
         """)
         self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
-        self._selected_plan="pro"; self._selected_duration="1m"
+        self._selected_plan = "starter"
+        self._selected_duration = "1m"
         self._build_ui()
 
-    def _lbl(self, text, style=""):
-        l=QLabel(text); l.setStyleSheet(style); return l
-
     def _build_ui(self):
-        main=QHBoxLayout(self); main.setContentsMargins(0,0,0,0); main.setSpacing(0)
+        main = QHBoxLayout(self)
+        main.setContentsMargins(0, 0, 0, 0)
+        main.setSpacing(0)
 
-        # תוכן
-        self._stack=QStackedWidget()
-        self._stack.setStyleSheet("background:#080b12;")
-        self._stack.addWidget(self._build_buy_page())
-        self._stack.addWidget(self._build_activate_page())
-        self._stack.addWidget(self._build_login_page())
-        main.addWidget(self._stack, 1)
+        # ── סרגל שמאלי ──
+        sidebar = QWidget()
+        sidebar.setFixedWidth(200)
+        sidebar.setStyleSheet("background: #0d1117; border-right: 1px solid #1e2330;")
+        sb_layout = QVBoxLayout(sidebar)
+        sb_layout.setContentsMargins(16, 24, 16, 24)
+        sb_layout.setSpacing(8)
 
-        # סרגל ניווט
-        sidebar=QWidget(); sidebar.setFixedWidth(200)
-        sidebar.setStyleSheet("background:#0d1117;border-left:1px solid #1e2330;")
-        sb=QVBoxLayout(sidebar); sb.setContentsMargins(16,24,16,24); sb.setSpacing(8)
+        logo = QLabel("⚡ Experu TG")
+        logo.setStyleSheet("color: #22d3b0; font-size: 16px; font-weight: 900; padding-bottom: 16px;")
+        sb_layout.addWidget(logo)
 
-        logo=self._lbl("⚡ Experu TG","color:#3b82f6;font-size:16px;font-weight:900;padding-bottom:16px;")
-        logo.setAlignment(Qt.AlignCenter); sb.addWidget(logo)
-
-        self._nav_btns={}
-        for key,label in [("buy","🛒 קנה רישיון"),("activate","🔑 יש לי מפתח"),("login","👤 חשבון קיים")]:
-            btn=QPushButton(label); btn.setCheckable(True)
+        self._nav_btns = {}
+        nav_items = [
+            ("buy",     "🛒 קנה רישיון"),
+            ("activate","🔑 יש לי מפתח"),
+            ("login",   "👤 חשבון קיים"),
+        ]
+        for key, label in nav_items:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
             btn.setStyleSheet("""
-                QPushButton{background:transparent;color:#6b7280;text-align:center;
-                    padding:10px 12px;border-radius:8px;font-size:12px;border:none;}
-                QPushButton:checked{background:#1e2d45;color:#3b82f6;font-weight:700;}
-                QPushButton:hover:!checked{background:#111827;color:#e2e8f0;}
+                QPushButton { background: transparent; color: #6b7280; text-align: right;
+                    padding: 10px 12px; border-radius: 8px; font-size: 12px; }
+                QPushButton:checked { background: #0d2420; color: #22d3b0; font-weight: 700; }
+                QPushButton:hover:!checked { background: #111827; color: #e2e8f0; }
             """)
-            btn.clicked.connect(lambda _,k=key: self._switch_page(k))
-            self._nav_btns[key]=btn; sb.addWidget(btn)
+            btn.clicked.connect(lambda _, k=key: self._switch_page(k))
+            self._nav_btns[key] = btn
+            sb_layout.addWidget(btn)
 
-        sb.addStretch()
-        sup=self._lbl("📞 @experu_support","color:#374151;font-size:10px;")
-        sup.setAlignment(Qt.AlignCenter); sb.addWidget(sup)
+        sb_layout.addStretch()
+
+        support_lbl = QLabel("📞 תמיכה\n@experu_support")
+        support_lbl.setStyleSheet("color: #374151; font-size: 10px; text-align: center;")
+        support_lbl.setAlignment(Qt.AlignCenter)
+        sb_layout.addWidget(support_lbl)
+
         main.addWidget(sidebar)
+
+        # ── תוכן ראשי ──
+        self._stack = QStackedWidget()
+        self._stack.setStyleSheet("background: #080b12;")
+        self._stack.addWidget(self._build_buy_page())      # 0
+        self._stack.addWidget(self._build_activate_page()) # 1
+        self._stack.addWidget(self._build_login_page())    # 2
+        main.addWidget(self._stack)
+
         self._switch_page("buy")
 
     def _switch_page(self, key):
-        for k,btn in self._nav_btns.items(): btn.setChecked(k==key)
-        self._stack.setCurrentIndex({"buy":0,"activate":1,"login":2}[key])
+        pages = {"buy": 0, "activate": 1, "login": 2}
+        for k, btn in self._nav_btns.items():
+            btn.setChecked(k == key)
+        self._stack.setCurrentIndex(pages[key])
 
-    # ══ דף קנייה ══
+    # ═══════════════════════════════════════════
+    # דף קנייה
+    # ═══════════════════════════════════════════
     def _build_buy_page(self):
-        page=QWidget(); layout=QVBoxLayout(page)
-        layout.setContentsMargins(24,18,24,18); layout.setSpacing(10)
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(16)
 
-        layout.addWidget(self._lbl("🛒 בחר תוכנית","font-size:20px;font-weight:900;color:#f8fafc;"))
-        layout.addWidget(self._lbl("שלם בקריפטו (USDT) — מפתח מגיע מיד לטלגרם / Gmail שלך","color:#6b7280;font-size:12px;"))
+        title = QLabel("🛒 בחר תוכנית")
+        title.setStyleSheet("font-size: 20px; font-weight: 900; color: #f8fafc;")
+        layout.addWidget(title)
 
-        # תקופה
-        dur_row=QHBoxLayout()
-        dur_row.addWidget(self._lbl("⏱ תקופה:","font-size:12px;color:#94a3b8;"))
-        self._dur_btns={}
-        for dk,(dl,_) in DURATIONS.items():
-            btn=QPushButton(dl); btn.setCheckable(True); btn.setChecked(dk=="1m")
-            btn.setFixedHeight(30)
+        sub = QLabel("שלם בקריפטו (USDT/BTC) — מפתח מגיע מיד לטלגרם שלך | מחירים ב-₪ / $")
+        sub.setStyleSheet("color: #6b7280; font-size: 12px;")
+        layout.addWidget(sub)
+
+        # ── בחירת תקופה ──
+        dur_row = QHBoxLayout()
+        dur_row.addWidget(QLabel("⏱ תקופה:"))
+        self._dur_btns = {}
+        for dur_key, (dur_label, _) in DURATIONS.items():
+            btn = QPushButton(dur_label)
+            btn.setCheckable(True)
+            btn.setChecked(dur_key == "1m")
             btn.setStyleSheet("""
-                QPushButton{background:#111827;color:#94a3b8;border:1px solid #1e2330;
-                    border-radius:6px;padding:4px 12px;font-size:11px;font-weight:600;}
-                QPushButton:checked{background:#1e2d45;color:#3b82f6;border-color:#3b82f6;}
-                QPushButton:hover:!checked{background:#1a2236;color:#e2e8f0;}
+                QPushButton { background: #111827; color: #94a3b8; border: 1px solid #1e2330;
+                    border-radius: 6px; padding: 6px 14px; font-size: 11px; font-weight: 600; }
+                QPushButton:checked { background: #0d2420; color: #22d3b0; border-color: #22d3b0; }
             """)
-            btn.clicked.connect(lambda _,k=dk: self._select_duration(k))
-            self._dur_btns[dk]=btn; dur_row.addWidget(btn)
-        dur_row.addStretch(); layout.addLayout(dur_row)
+            btn.clicked.connect(lambda _, k=dur_key: self._select_duration(k))
+            self._dur_btns[dur_key] = btn
+            dur_row.addWidget(btn)
+        dur_row.addStretch()
+        layout.addLayout(dur_row)
 
-        # כרטיסים
-        plans_row=QHBoxLayout(); plans_row.setSpacing(7)
-        self._plan_cards={}; self._plan_price_labels={}
-        for pk,plan in PLANS.items():
-            card,plbl=self._make_plan_card(pk,plan)
-            self._plan_cards[pk]=card; self._plan_price_labels[pk]=plbl
+        # ── כרטיסי תוכניות ──
+        plans_row = QHBoxLayout()
+        plans_row.setSpacing(10)
+        self._plan_cards = {}
+        for plan_key, plan in PLANS.items():
+            card = self._make_plan_card(plan_key, plan)
+            self._plan_cards[plan_key] = card
             plans_row.addWidget(card)
+        # כרטיס Lifetime
+        lt_card = self._make_lifetime_card()
+        self._plan_cards["lifetime"] = lt_card
+        plans_row.addWidget(lt_card)
         layout.addLayout(plans_row)
 
-        # פרטי לקוח
-        det=QFrame(); det.setStyleSheet("QFrame{background:#0d1117;border:1px solid #1e2330;border-radius:10px;}")
-        dl=QVBoxLayout(det); dl.setContentsMargins(14,10,14,10); dl.setSpacing(7)
-        dl.addWidget(self._lbl("📬 לאן לשלוח את מפתח הגישה?","font-size:12px;font-weight:700;color:#94a3b8;"))
-        fr=QHBoxLayout()
-        tc=QVBoxLayout(); tc.addWidget(self._lbl("📱 שם משתמש טלגרם","font-size:11px;color:#6b7280;"))
-        self._tg_input=QLineEdit(); self._tg_input.setPlaceholderText("@username"); self._tg_input.setFixedHeight(36)
-        tc.addWidget(self._tg_input)
-        ol=self._lbl("  או  ","color:#374151;font-size:12px;"); ol.setAlignment(Qt.AlignCenter)
-        gc=QVBoxLayout(); gc.addWidget(self._lbl("📧 כתובת Gmail","font-size:11px;color:#6b7280;"))
-        self._gmail_input=QLineEdit(); self._gmail_input.setPlaceholderText("your@gmail.com"); self._gmail_input.setFixedHeight(36)
-        gc.addWidget(self._gmail_input)
-        fr.addLayout(tc); fr.addWidget(ol); fr.addLayout(gc)
-        dl.addLayout(fr); layout.addWidget(det)
+        # ── שדות פרטים ──
+        details_frame = QFrame()
+        details_frame.setStyleSheet("background: #0d1117; border: 1px solid #1e2330; border-radius: 10px;")
+        details_layout = QVBoxLayout(details_frame)
+        details_layout.setContentsMargins(16, 14, 16, 14)
+        details_layout.setSpacing(10)
 
-        # כפתורים
-        br=QHBoxLayout()
-        self._trial_btn=QPushButton("🎁 ניסיון חינם 14 יום")
-        self._trial_btn.setFixedHeight(46)
-        self._trial_btn.setStyleSheet("""
-            QPushButton{background:#064e3b;color:#10b981;font-size:13px;font-weight:900;
-                border-radius:10px;border:2px solid #10b981;}
-            QPushButton:hover{background:#065f46;}
-            QPushButton:disabled{background:#1e2330;color:#374151;border-color:#1e2330;}
-        """)
-        self._trial_btn.clicked.connect(self._do_trial)
+        details_lbl = QLabel("📬 לאן לשלוח את מפתח הגישה?")
+        details_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #94a3b8;")
+        details_layout.addWidget(details_lbl)
 
-        self._buy_btn=QPushButton("💎 קנה עכשיו — שלם בקריפטו")
-        self._buy_btn.setFixedHeight(46)
+        row = QHBoxLayout()
+
+        tg_col = QVBoxLayout()
+        tg_lbl = QLabel("📱 שם משתמש טלגרם")
+        tg_lbl.setStyleSheet("font-size: 11px; color: #6b7280;")
+        self._tg_input = QLineEdit()
+        self._tg_input.setPlaceholderText("@username")
+        tg_col.addWidget(tg_lbl)
+        tg_col.addWidget(self._tg_input)
+
+        or_lbl = QLabel("  או  ")
+        or_lbl.setStyleSheet("color: #374151; font-size: 12px;")
+        or_lbl.setAlignment(Qt.AlignCenter)
+
+        gmail_col = QVBoxLayout()
+        gmail_lbl = QLabel("📧 כתובת Gmail")
+        gmail_lbl.setStyleSheet("font-size: 11px; color: #6b7280;")
+        self._gmail_input = QLineEdit()
+        self._gmail_input.setPlaceholderText("your@gmail.com")
+        gmail_col.addWidget(gmail_lbl)
+        gmail_col.addWidget(self._gmail_input)
+
+        row.addLayout(tg_col)
+        row.addWidget(or_lbl)
+        row.addLayout(gmail_col)
+        details_layout.addLayout(row)
+        layout.addWidget(details_frame)
+
+        # ── כפתור קנה ──
+        self._buy_btn = QPushButton("💎 קנה עכשיו — שלם בקריפטו")
         self._buy_btn.setStyleSheet("""
-            QPushButton{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #3b82f6,stop:1 #8b5cf6);
-                color:white;font-size:14px;font-weight:900;border-radius:10px;}
-            QPushButton:hover{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563eb,stop:1 #7c3aed);}
-            QPushButton:disabled{background:#1e2330;color:#374151;}
+            QPushButton {
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #3b82f6,stop:1 #8b5cf6);
+                color: white; font-size: 14px; font-weight: 900;
+                border-radius: 10px; padding: 14px;
+            }
+            QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563eb,stop:1 #7c3aed); }
         """)
         self._buy_btn.clicked.connect(self._do_buy)
-        br.addWidget(self._trial_btn,1); br.addWidget(self._buy_btn,2)
-        layout.addLayout(br)
+        layout.addWidget(self._buy_btn)
 
-        self._price_label=QLabel("")
-        self._price_label.setStyleSheet("color:#3b82f6;font-size:12px;font-weight:700;")
+        self._price_label = QLabel("")
+        self._price_label.setStyleSheet("color: #3b82f6; font-size: 12px; font-weight: 700;")
         self._price_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self._price_label)
         self._update_price_label()
+
         return page
 
-    def _make_plan_card(self, pk, plan):
-        card=QFrame(); card.setFixedHeight(172); card.setCursor(Qt.PointingHandCursor)
-        self._style_plan_card(card, pk, pk=="pro")
-        cl=QVBoxLayout(card); cl.setContentsMargins(10,10,10,10); cl.setSpacing(3)
-        cl.addWidget(self._lbl(f"{plan['emoji']} {plan['name']}",f"color:{plan['color']};font-size:13px;font-weight:900;"))
-        if plan.get("trial"): ptxt="חינם! 14 יום"
-        else: ptxt=f"${plan['price_1m']}/חודש"
-        plbl=QLabel(ptxt); plbl.setStyleSheet("color:#f8fafc;font-size:12px;font-weight:700;")
-        cl.addWidget(plbl)
+    def _make_plan_card(self, plan_key, plan):
+        card = QFrame()
+        card.setFixedHeight(200)
+        card.setCursor(Qt.PointingHandCursor)
+        self._style_plan_card(card, plan_key, False)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 12, 12, 10)
+        layout.setSpacing(3)
+
+        # שורת כותרת
+        header_row = QHBoxLayout()
+        name_lbl = QLabel(f"{plan['emoji']} {plan['name']}")
+        name_lbl.setStyleSheet(f"color: {plan['color']}; font-size: 13px; font-weight: 900;")
+        header_row.addWidget(name_lbl)
+        if plan.get("trial"):
+            trial_lbl = QLabel("✨ ניסיון חינם")
+            trial_lbl.setStyleSheet("color: #4ade80; font-size: 9px; font-weight: 700; background: rgba(74,222,128,0.1); border-radius: 4px; padding: 2px 5px;")
+            header_row.addWidget(trial_lbl)
+        header_row.addStretch()
+        layout.addLayout(header_row)
+
+        # מחיר
+        ils_price = plan['price_1m']
+        orig = plan.get('orig_1m')
+        if orig:
+            orig_lbl = QLabel(f"₪{orig:,}")
+            orig_lbl.setStyleSheet("color: #4a5568; font-size: 10px; text-decoration: line-through;")
+            layout.addWidget(orig_lbl)
+        price_lbl = QLabel(f"₪{ils_price:,}/חודש")
+        price_lbl.setObjectName("price_lbl")
+        price_lbl.setStyleSheet(f"color: {plan['color']}; font-size: 14px; font-weight: 900;")
+        layout.addWidget(price_lbl)
+
+        # סשנים
+        sessions = plan.get("sessions", 0)
+        sessions_str = "∞" if plan.get("unlimited") else str(sessions)
+        sess_lbl = QLabel(f"💻 {sessions_str} סשנים")
+        sess_lbl.setStyleSheet("color: #94a3b8; font-size: 10px; font-weight: 600;")
+        layout.addWidget(sess_lbl)
+
+        layout.addSpacing(4)
+
         for feat in plan["features"][:4]:
-            f=QLabel(feat); f.setStyleSheet("font-size:10px;color:#94a3b8;"); cl.addWidget(f)
+            color = "#f0c040" if feat.startswith("⚡") else ("#4ade80" if feat.startswith("✅") else "#4a5568")
+            f = QLabel(feat)
+            f.setStyleSheet(f"font-size: 10px; color: {color};")
+            layout.addWidget(f)
+
         if plan.get("popular"):
-            cl.addWidget(self._lbl(f"⭐ הכי פופולרי",f"color:{plan['color']};font-size:9px;font-weight:700;"))
-        card.mousePressEvent=lambda e,k=pk: self._select_plan(k)
-        return card, plbl
+            pop = QLabel("🔥 הנמכרת ביותר")
+            pop.setStyleSheet(f"color: {plan['color']}; font-size: 9px; font-weight: 700;")
+            layout.addWidget(pop)
 
-    def _style_plan_card(self, card, pk, selected):
-        color=PLANS[pk]["color"]
-        if selected: card.setStyleSheet(f"QFrame{{background:#0d1117;border:2px solid {color};border-radius:10px;}}")
-        else: card.setStyleSheet("QFrame{background:#0d1117;border:1px solid #1e2330;border-radius:10px;}")
+        card.mousePressEvent = lambda e, k=plan_key: self._select_plan(k)
+        return card
 
-    def _select_plan(self, pk):
-        self._selected_plan=pk
-        for k,c in self._plan_cards.items(): self._style_plan_card(c,k,k==pk)
+    def _make_lifetime_card(self):
+        lt = LIFETIME
+        card = QFrame()
+        card.setFixedHeight(200)
+        card.setCursor(Qt.PointingHandCursor)
+        card.setStyleSheet(f"QFrame {{ background: #0d1117; border: 1px solid #2a2010; border-radius: 10px; }}")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 12, 12, 10)
+        layout.setSpacing(3)
+
+        header = QLabel(f"{lt['emoji']} {lt['name']}")
+        header.setStyleSheet(f"color: {lt['color']}; font-size: 13px; font-weight: 900;")
+        layout.addWidget(header)
+
+        orig_lbl = QLabel(f"₪{lt['orig_ils']:,}")
+        orig_lbl.setStyleSheet("color: #4a5568; font-size: 10px; text-decoration: line-through;")
+        layout.addWidget(orig_lbl)
+
+        price_lbl = QLabel(f"₪{lt['price_ils']:,}")
+        price_lbl.setObjectName("lt_price_lbl")
+        price_lbl.setStyleSheet(f"color: {lt['color']}; font-size: 14px; font-weight: 900;")
+        layout.addWidget(price_lbl)
+
+        once_lbl = QLabel("💡 חד-פעמי לנצח")
+        once_lbl.setStyleSheet("color: #4ade80; font-size: 9px; font-weight: 700;")
+        layout.addWidget(once_lbl)
+
+        layout.addSpacing(4)
+
+        for feat in lt["features"][:4]:
+            color = "#f0c040" if feat.startswith("⚡") else "#4ade80"
+            f = QLabel(feat)
+            f.setStyleSheet(f"font-size: 10px; color: {color};")
+            layout.addWidget(f)
+
+        launch = QLabel("🔥 מחיר השקה")
+        launch.setStyleSheet(f"color: {lt['color']}; font-size: 9px; font-weight: 700;")
+        layout.addWidget(launch)
+
+        card.mousePressEvent = lambda e: self._select_plan("lifetime")
+        return card
+
+    def _style_plan_card(self, card, plan_key, selected):
+        if plan_key == "lifetime":
+            color = LIFETIME["color"]
+        else:
+            color = PLANS[plan_key]["color"]
+        if selected:
+            card.setStyleSheet(f"QFrame {{ background: #0d1117; border: 2px solid {color}; border-radius: 10px; }}")
+        else:
+            card.setStyleSheet("QFrame { background: #0d1117; border: 1px solid #1e2330; border-radius: 10px; }")
+
+    def _select_plan(self, plan_key):
+        self._selected_plan = plan_key
+        for k, card in self._plan_cards.items():
+            self._style_plan_card(card, k, k == plan_key)
         self._update_price_label()
 
-    def _select_duration(self, dk):
-        self._selected_duration=dk
-        for k,btn in self._dur_btns.items(): btn.setChecked(k==dk)
-        # עדכן מחירים בכרטיסים
-        for pk,plan in PLANS.items():
-            lbl=self._plan_price_labels.get(pk)
-            if not lbl: continue
-            if plan.get("trial"): lbl.setText("חינם! 14 יום")
-            else:
-                price=plan[f"price_{dk}"]
-                lbl.setText(f"${price} / {DURATIONS[dk][0]}")
+    def _select_duration(self, dur_key):
+        self._selected_duration = dur_key
+        for k, btn in self._dur_btns.items():
+            btn.setChecked(k == dur_key)
+        for plan_key, card in self._plan_cards.items():
+            if plan_key == "lifetime":
+                continue  # Lifetime לא משתנה לפי תקופה
+            p = PLANS[plan_key][f"price_{dur_key}"]
+            lbl = card.findChild(QLabel, "price_lbl")
+            if lbl:
+                dur_label = DURATIONS[dur_key][0]
+                lbl.setText(f"₪{p:,} / {dur_label}")
         self._update_price_label()
 
     def _update_price_label(self):
-        plan=PLANS[self._selected_plan]
-        if plan.get("trial"): self._price_label.setText("🎁 ניסיון חינם — גישה מלאה ל-14 ימים")
+        if self._selected_plan == "lifetime":
+            ils = LIFETIME["price_ils"]
+            usd = LIFETIME["price_usd"]
+            self._price_label.setText(f"♾️ Lifetime | ₪{ils:,} (~${usd:,}) | חד-פעמי לנצח 🔥")
         else:
-            price=plan[f"price_{self._selected_duration}"]
-            self._price_label.setText(f"💰 {plan['name']} | {DURATIONS[self._selected_duration][0]} | ${price} USDT")
+            plan = PLANS[self._selected_plan]
+            ils = plan[f"price_{self._selected_duration}"]
+            usd = plan[f"usd_{self._selected_duration}"]
+            dur_label = DURATIONS[self._selected_duration][0]
+            self._price_label.setText(f"💰 {plan['name']} | {dur_label} | ₪{ils:,} (~${usd:,} USDT)")
 
     def _do_buy(self):
-        if PLANS[self._selected_plan].get("trial"): self._do_trial(); return
-        tg=self._tg_input.text().strip().lstrip("@")
-        gmail=self._gmail_input.text().strip()
+        tg    = self._tg_input.text().strip().lstrip("@")
+        gmail = self._gmail_input.text().strip()
         if not tg and not gmail:
-            QMessageBox.warning(self,"⚠️","הכנס שם משתמש טלגרם או כתובת Gmail"); return
-        self._buy_btn.setEnabled(False); self._buy_btn.setText("⏳ יוצר קישור...")
-        self._pay_worker=_PaymentWorker(self._selected_plan, self._selected_duration, tg or gmail)
-        self._pay_worker.result.connect(self._on_payment_created); self._pay_worker.start()
+            QMessageBox.warning(self, "⚠️", "הכנס שם משתמש טלגרם או כתובת Gmail")
+            return
+        contact = tg or gmail
+        plan    = self._selected_plan
+        dur     = self._selected_duration
 
-    def _on_payment_created(self, result):
-        self._buy_btn.setEnabled(True); self._buy_btn.setText("💎 קנה עכשיו — שלם בקריפטו")
+        if plan == "lifetime":
+            usd_price = LIFETIME["price_usd"]
+            ils_price = LIFETIME["price_ils"]
+            plan_name = "Lifetime"
+        else:
+            usd_price = PLANS[plan][f"usd_{dur}"]
+            ils_price = PLANS[plan][f"price_{dur}"]
+            plan_name = PLANS[plan]["name"]
+
+        self._buy_btn.setEnabled(False)
+        self._buy_btn.setText("⏳ יוצר קישור תשלום...")
+
+        self._pay_worker = _PaymentWorker(plan, dur, contact)
+        self._pay_worker.result.connect(self._on_payment_created)
+        self._pay_worker.start()
+
+    def _on_payment_created(self, result: dict):
+        self._buy_btn.setEnabled(True)
+        self._buy_btn.setText("💎 קנה עכשיו — שלם בקריפטו")
         if result.get("success"):
-            webbrowser.open(result["payment_url"])
-            plan=PLANS[self._selected_plan]
-            price=plan[f"price_{self._selected_duration}"]
-            QMessageBox.information(self,"💳 תשלום קריפטו",
-                f"נפתח דף תשלום אישי!\n\n"
-                f"📦 {plan['name']} | {DURATIONS[self._selected_duration][0]}\n"
-                f"💰 סכום מדויק: ${price} USDT\n\n"
-                f"⚠️ שלם בדיוק ${price} USDT — סכום שונה לא יאושר!\n\n"
-                f"⚡ אחרי תשלום — מפתח יגיע לטלגרם/Gmail.\n"
-                f"לחץ 'יש לי מפתח' בתפריט.")
+            url = result["payment_url"]
+            webbrowser.open(url)
+            plan = self._selected_plan
+            dur  = self._selected_duration
+            if plan == "lifetime":
+                plan_name = "Lifetime ♾️"
+                ils = LIFETIME["price_ils"]
+                usd = LIFETIME["price_usd"]
+                dur_str = "לנצח"
+            else:
+                plan_name = PLANS[plan]["name"]
+                ils = PLANS[plan][f"price_{dur}"]
+                usd = PLANS[plan][f"usd_{dur}"]
+                dur_str = DURATIONS[dur][0]
+            QMessageBox.information(self, "💳 תשלום קריפטו",
+                f"נפתח דף תשלום ייחודי שלך בדפדפן!\n\n"
+                f"📦 תוכנית: {plan_name} | {dur_str}\n"
+                f"💰 סכום: ₪{ils:,} (~${usd:,} USDT)\n\n"
+                f"⚡ אחרי אישור התשלום תקבל מפתח לטלגרם/Gmail שלך.\n"
+                f"לאחר מכן לחץ 'יש לי מפתח' בצד שמאל."
+            )
             self._switch_page("activate")
         else:
-            QMessageBox.critical(self,"❌ שגיאה",f"שגיאה ביצירת תשלום:\n{result.get('error','')}\n\nצור קשר: @experu_support")
+            QMessageBox.critical(self, "❌ שגיאה", f"לא ניתן ליצור קישור תשלום:\n{result.get('error','')}\n\nצור קשר: @experu_support")
 
-    def _do_trial(self):
-        tg=self._tg_input.text().strip().lstrip("@")
-        gmail=self._gmail_input.text().strip()
-        if not tg and not gmail:
-            QMessageBox.warning(self,"⚠️","הכנס שם משתמש טלגרם או Gmail לקבלת מפתח הניסיון"); return
-        self._trial_btn.setEnabled(False); self._trial_btn.setText("⏳ יוצר ניסיון...")
-        self._trial_worker=_TrialWorker(tg or gmail)
-        self._trial_worker.result.connect(self._on_trial_created); self._trial_worker.start()
-
-    def _on_trial_created(self, result):
-        self._trial_btn.setEnabled(True); self._trial_btn.setText("🎁 ניסיון חינם 14 יום")
-        if result.get("success"):
-            key=result.get("license_key","")
-            QMessageBox.information(self,"🎁 ניסיון חינם!",
-                f"מפתח הניסיון שלך:\n\n{key}\n\nגישה מלאה ל-14 ימים!\nהמפתח הוכנס אוטומטית — לחץ 'הפעל רישיון'.")
-            self._key_input.setText(key); self._switch_page("activate")
-        else:
-            err=result.get("error","")
-            if "already_used" in err: QMessageBox.warning(self,"⚠️","כבר השתמשת בניסיון חינם עם פרטים אלה.")
-            else: QMessageBox.critical(self,"❌ שגיאה",f"לא ניתן ליצור ניסיון:\n{err}")
-
-    # ══ דף הפעלת מפתח ══
+    # ═══════════════════════════════════════════
+    # דף הפעלת מפתח
+    # ═══════════════════════════════════════════
     def _build_activate_page(self):
-        page=QWidget(); layout=QVBoxLayout(page)
-        layout.setContentsMargins(60,70,60,40); layout.setSpacing(16)
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(40, 60, 40, 40)
+        layout.setSpacing(16)
 
-        t=self._lbl("🔑 הזן מפתח גישה","font-size:22px;font-weight:900;color:#f8fafc;")
-        t.setAlignment(Qt.AlignCenter); layout.addWidget(t)
-        s=self._lbl("הכנס את המפתח שקיבלת אחרי הרכישה / ניסיון","color:#6b7280;font-size:13px;")
-        s.setAlignment(Qt.AlignCenter); layout.addWidget(s)
-        layout.addSpacing(10)
+        title = QLabel("🔑 הזן מפתח גישה")
+        title.setStyleSheet("font-size: 22px; font-weight: 900; color: #f8fafc;")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
 
-        self._key_input=QLineEdit()
+        sub = QLabel("הכנס את המפתח שקיבלת לאחר הרכישה")
+        sub.setStyleSheet("color: #6b7280; font-size: 13px;")
+        sub.setAlignment(Qt.AlignCenter)
+        layout.addWidget(sub)
+
+        layout.addSpacing(20)
+
+        self._key_input = QLineEdit()
         self._key_input.setPlaceholderText("EXPERU-XXXXXX-XXXXXX-XXXXXX-XXXXXX")
-        self._key_input.setAlignment(Qt.AlignCenter); self._key_input.setFixedHeight(50)
+        self._key_input.setAlignment(Qt.AlignCenter)
+        self._key_input.setFixedHeight(50)
         self._key_input.setStyleSheet("""
-            QLineEdit{background:#0d1117;color:#e2e8f0;border:2px solid #1e2d45;
-                border-radius:10px;padding:10px 18px;font-size:14px;
-                font-family:Consolas,monospace;letter-spacing:1px;}
-            QLineEdit:focus{border-color:#3b82f6;}
+            QLineEdit {
+                background: #0d1117; color: #e2e8f0;
+                border: 2px solid #1e2d45; border-radius: 10px;
+                padding: 10px 18px; font-size: 15px;
+                font-family: Consolas, monospace; letter-spacing: 1px;
+            }
+            QLineEdit:focus { border-color: #22d3b0; }
         """)
         layout.addWidget(self._key_input)
 
-        self._activate_btn=QPushButton("✅ הפעל רישיון"); self._activate_btn.setFixedHeight(48)
+        self._activate_btn = QPushButton("✅ הפעל רישיון")
+        self._activate_btn.setFixedHeight(48)
         self._activate_btn.setStyleSheet("""
-            QPushButton{background:#10b981;color:white;font-size:15px;font-weight:900;border-radius:10px;}
-            QPushButton:hover{background:#059669;}
-            QPushButton:disabled{background:#1e2330;color:#374151;}
+            QPushButton {
+                background: #22d3b0; color: #080b12;
+                font-size: 15px; font-weight: 900; border-radius: 10px;
+            }
+            QPushButton:hover { background: #16a085; }
+            QPushButton:disabled { background: #1e2330; color: #374151; }
         """)
-        self._activate_btn.clicked.connect(self._do_activate); layout.addWidget(self._activate_btn)
+        self._activate_btn.clicked.connect(self._do_activate)
+        layout.addWidget(self._activate_btn)
 
-        self._activate_status=QLabel("")
+        self._activate_status = QLabel("")
         self._activate_status.setAlignment(Qt.AlignCenter)
-        self._activate_status.setStyleSheet("font-size:12px;"); self._activate_status.setWordWrap(True)
-        layout.addWidget(self._activate_status); layout.addStretch()
+        self._activate_status.setStyleSheet("font-size: 12px;")
+        self._activate_status.setWordWrap(True)
+        layout.addWidget(self._activate_status)
 
-        h=self._lbl("עדיין לא קנית? לחץ 'קנה רישיון' • ניסיון חינם זמין!","color:#374151;font-size:11px;")
-        h.setAlignment(Qt.AlignCenter); layout.addWidget(h)
+        layout.addStretch()
+
+        hint = QLabel("עדיין לא קנית? לחץ על 'קנה רישיון' בתפריט")
+        hint.setStyleSheet("color: #374151; font-size: 11px;")
+        hint.setAlignment(Qt.AlignCenter)
+        layout.addWidget(hint)
+
         return page
 
     def _do_activate(self):
-        key=self._key_input.text().strip()
+        key = self._key_input.text().strip()
         if not key:
             self._activate_status.setText("⚠️ הכנס מפתח")
-            self._activate_status.setStyleSheet("color:#f59e0b;font-size:12px;"); return
-        self._activate_btn.setEnabled(False); self._activate_btn.setText("⏳ בודק...")
+            self._activate_status.setStyleSheet("color: #f59e0b; font-size: 12px;")
+            return
+        self._activate_btn.setEnabled(False)
+        self._activate_btn.setText("⏳ בודק...")
         self._activate_status.setText("")
-        self._worker=LicenseCheckWorker(key)
-        self._worker.result.connect(self._on_activate_result); self._worker.start()
+        self._worker = LicenseCheckWorker(key)
+        self._worker.result.connect(self._on_activate_result)
+        self._worker.start()
 
-    def _on_activate_result(self, result):
-        self._activate_btn.setEnabled(True); self._activate_btn.setText("✅ הפעל רישיון")
+    def _on_activate_result(self, result: LicenseResult):
+        self._activate_btn.setEnabled(True)
+        self._activate_btn.setText("✅ הפעל רישיון")
         if result.valid:
-            pname=PLANS.get(result.plan,{}).get("name",result.plan)
-            self._activate_status.setText(f"🎉 רישיון תקף! {pname} | עוד {result.days_left} ימים")
-            self._activate_status.setStyleSheet("color:#10b981;font-size:13px;font-weight:700;")
+            self._activate_status.setText(
+                f"🎉 רישיון תקף!\n{PLANS.get(result.plan, LIFETIME if result.plan == 'lifetime' else {}).get('name', result.plan)} | "
+                f"עוד {result.days_left} ימים"
+            )
+            self._activate_status.setStyleSheet("color: #10b981; font-size: 13px; font-weight: 700;")
             QTimer.singleShot(1200, lambda: self.license_accepted.emit(result))
         else:
-            msgs={"key_not_found":"❌ מפתח לא נמצא","key_revoked":"🚫 מפתח בוטל",
-                "expired":"⏰ רישיון פג — חדש מנוי","trial_expired":"⏰ ניסיון הסתיים — רכוש מנוי!",
-                "hwid_mismatch":"💻 נעול למחשב אחר\nצור קשר: @experu_support",
-                "no_connection":"🌐 אין חיבור לשרת"}
-            self._activate_status.setText(msgs.get(result.reason,f"❌ {result.reason}"))
-            self._activate_status.setStyleSheet("color:#ef4444;font-size:12px;")
+            reasons = {
+                "key_not_found": "❌ מפתח לא נמצא במערכת",
+                "key_revoked":   "🚫 מפתח זה בוטל",
+                "expired":       "⏰ הרישיון פג — חדש את המנוי",
+                "hwid_mismatch": "💻 המפתח נעול למחשב אחר\n(צור קשר עם התמיכה לאיפוס)",
+                "no_connection": "🌐 אין חיבור לשרת — בדוק אינטרנט",
+            }
+            msg = reasons.get(result.reason, f"❌ שגיאה: {result.reason}")
+            self._activate_status.setText(msg)
+            self._activate_status.setStyleSheet("color: #ef4444; font-size: 12px;")
 
-    # ══ דף חשבון קיים ══
+    # ═══════════════════════════════════════════
+    # דף כניסה — חשבון קיים
+    # ═══════════════════════════════════════════
     def _build_login_page(self):
-        page=QWidget(); layout=QVBoxLayout(page)
-        layout.setContentsMargins(60,50,60,40); layout.setSpacing(14)
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(40, 50, 40, 40)
+        layout.setSpacing(14)
 
-        t=self._lbl("👤 כניסה — חשבון קיים","font-size:22px;font-weight:900;color:#f8fafc;")
-        t.setAlignment(Qt.AlignCenter); layout.addWidget(t)
-        s=self._lbl("החלפת מחשב? הכנס פרטים ומפתח גישה","color:#6b7280;font-size:12px;")
-        s.setAlignment(Qt.AlignCenter); layout.addWidget(s)
+        title = QLabel("👤 כניסה — חשבון קיים")
+        title.setStyleSheet("font-size: 22px; font-weight: 900; color: #f8fafc;")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        sub = QLabel("החלפת מחשב? הכנס את הפרטים שלך ומפתח הגישה")
+        sub.setStyleSheet("color: #6b7280; font-size: 12px;")
+        sub.setAlignment(Qt.AlignCenter)
+        layout.addWidget(sub)
+
         layout.addSpacing(10)
 
-        layout.addWidget(self._lbl("📬 שם משתמש טלגרם או Gmail","font-size:12px;color:#94a3b8;"))
-        self._login_id_input=QLineEdit()
-        self._login_id_input.setPlaceholderText("@username  או  email@gmail.com")
-        self._login_id_input.setFixedHeight(44); layout.addWidget(self._login_id_input)
+        # זיהוי — טלגרם או Gmail
+        id_lbl = QLabel("📬 שם משתמש טלגרם או Gmail")
+        id_lbl.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        layout.addWidget(id_lbl)
 
-        layout.addWidget(self._lbl("🔐 מפתח גישה (חובה)","font-size:12px;color:#94a3b8;"))
-        self._login_key_input=QLineEdit()
+        self._login_id_input = QLineEdit()
+        self._login_id_input.setPlaceholderText("@username  או  email@gmail.com")
+        self._login_id_input.setFixedHeight(44)
+        layout.addWidget(self._login_id_input)
+
+        # מפתח גישה — חובה
+        key_lbl = QLabel("🔐 מפתח גישה (חובה)")
+        key_lbl.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        layout.addWidget(key_lbl)
+
+        self._login_key_input = QLineEdit()
         self._login_key_input.setPlaceholderText("EXPERU-XXXXXX-XXXXXX-XXXXXX-XXXXXX")
         self._login_key_input.setFixedHeight(44)
         self._login_key_input.setStyleSheet("""
-            QLineEdit{background:#0d1117;color:#e2e8f0;border:1px solid #1e2d45;
-                border-radius:8px;padding:10px 14px;font-family:Consolas,monospace;font-size:13px;}
-            QLineEdit:focus{border-color:#f59e0b;}
+            QLineEdit {
+                background: #0d1117; color: #e2e8f0;
+                border: 1px solid #1e2d45; border-radius: 8px;
+                padding: 10px 14px; font-family: Consolas, monospace;
+                font-size: 13px;
+            }
+            QLineEdit:focus { border-color: #f59e0b; }
         """)
         layout.addWidget(self._login_key_input)
-        layout.addWidget(self._lbl("💡 המפתח נשלח אליך בטלגרם/Gmail בזמן הרכישה","color:#374151;font-size:10px;"))
 
-        self._login_btn=QPushButton("🔓 כנס למערכת"); self._login_btn.setFixedHeight(48)
+        hint = QLabel("💡 המפתח נשלח אליך בטלגרם / Gmail בזמן הרכישה")
+        hint.setStyleSheet("color: #374151; font-size: 10px;")
+        layout.addWidget(hint)
+
+        self._login_btn = QPushButton("🔓 כנס למערכת")
+        self._login_btn.setFixedHeight(48)
         self._login_btn.setStyleSheet("""
-            QPushButton{background:#f59e0b;color:#080b12;font-size:15px;font-weight:900;border-radius:10px;}
-            QPushButton:hover{background:#d97706;}
-            QPushButton:disabled{background:#1e2330;color:#374151;}
+            QPushButton {
+                background: #f59e0b; color: #080b12;
+                font-size: 15px; font-weight: 900; border-radius: 10px;
+            }
+            QPushButton:hover { background: #d97706; }
+            QPushButton:disabled { background: #1e2330; color: #374151; }
         """)
-        self._login_btn.clicked.connect(self._do_login); layout.addWidget(self._login_btn)
+        self._login_btn.clicked.connect(self._do_login)
+        layout.addWidget(self._login_btn)
 
-        self._login_status=QLabel(""); self._login_status.setAlignment(Qt.AlignCenter)
-        self._login_status.setStyleSheet("font-size:12px;"); self._login_status.setWordWrap(True)
-        layout.addWidget(self._login_status); layout.addStretch()
+        self._login_status = QLabel("")
+        self._login_status.setAlignment(Qt.AlignCenter)
+        self._login_status.setStyleSheet("font-size: 12px;")
+        self._login_status.setWordWrap(True)
+        layout.addWidget(self._login_status)
 
-        n=self._lbl("🔒 המפתח נעול למחשב הראשון שהפעיל אותו.\nלהחלפת מחשב: @experu_support","color:#374151;font-size:10px;")
-        n.setAlignment(Qt.AlignCenter); n.setWordWrap(True); layout.addWidget(n)
+        layout.addStretch()
+
+        note = QLabel("🔒 המפתח נעול למחשב שממנו הופעל בפעם הראשונה.\n"
+                      "להחלפת מחשב צור קשר: @experu_support")
+        note.setStyleSheet("color: #374151; font-size: 10px;")
+        note.setAlignment(Qt.AlignCenter)
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
         return page
 
     def _do_login(self):
-        identifier=self._login_id_input.text().strip()
-        key=self._login_key_input.text().strip()
+        identifier = self._login_id_input.text().strip()
+        key        = self._login_key_input.text().strip()
         if not identifier:
             self._login_status.setText("⚠️ הכנס שם משתמש טלגרם או Gmail")
-            self._login_status.setStyleSheet("color:#f59e0b;font-size:12px;"); return
+            self._login_status.setStyleSheet("color: #f59e0b; font-size: 12px;")
+            return
         if not key:
-            self._login_status.setText("⚠️ המפתח חובה — בדוק בטלגרם/Gmail שלך")
-            self._login_status.setStyleSheet("color:#f59e0b;font-size:12px;"); return
-        self._login_btn.setEnabled(False); self._login_btn.setText("⏳ מאמת...")
+            self._login_status.setText("⚠️ המפתח חובה — בדוק בטלגרם / Gmail שלך")
+            self._login_status.setStyleSheet("color: #f59e0b; font-size: 12px;")
+            return
+        self._login_btn.setEnabled(False)
+        self._login_btn.setText("⏳ מאמת...")
         self._login_status.setText("")
-        self._login_worker=LicenseCheckWorker(key)
-        self._login_worker.result.connect(self._on_login_result); self._login_worker.start()
+        # בדוק ישירות את המפתח (הזיהוי הוא רק לנוחות)
+        self._worker = LicenseCheckWorker(key)
+        self._worker.result.connect(self._on_login_result)
+        self._worker.start()
 
-    def _on_login_result(self, result):
-        self._login_btn.setEnabled(True); self._login_btn.setText("🔓 כנס למערכת")
+    def _on_login_result(self, result: LicenseResult):
+        self._login_btn.setEnabled(True)
+        self._login_btn.setText("🔓 כנס למערכת")
         if result.valid:
-            self._login_status.setText(f"✅ ברוך הבא! {result.plan} | עוד {result.days_left} ימים")
-            self._login_status.setStyleSheet("color:#10b981;font-size:13px;font-weight:700;")
+            self._login_status.setText(f"✅ ברוך הבא! תוכנית {result.plan} | עוד {result.days_left} ימים")
+            self._login_status.setStyleSheet("color: #10b981; font-size: 13px; font-weight: 700;")
             QTimer.singleShot(1000, lambda: self.license_accepted.emit(result))
         else:
-            msgs={"key_not_found":"❌ מפתח לא נמצא","key_revoked":"🚫 מפתח בוטל",
-                "expired":"⏰ רישיון פג","hwid_mismatch":"💻 נעול למחשב אחר — @experu_support",
-                "no_connection":"🌐 אין חיבור לשרת"}
-            self._login_status.setText(msgs.get(result.reason,f"❌ {result.reason}"))
-            self._login_status.setStyleSheet("color:#ef4444;font-size:12px;")
+            reasons = {
+                "key_not_found": "❌ מפתח לא נמצא",
+                "key_revoked":   "🚫 מפתח בוטל",
+                "expired":       "⏰ רישיון פג",
+                "hwid_mismatch": "💻 המפתח נעול למחשב אחר — @experu_support",
+                "no_connection": "🌐 אין חיבור לשרת",
+            }
+            self._login_status.setText(reasons.get(result.reason, f"❌ {result.reason}"))
+            self._login_status.setStyleSheet("color: #ef4444; font-size: 12px;")
 
 
 # ──────────────────────────────────────────────
+# פונקציה ראשית — קרא מה-main של התוכנה
+# ──────────────────────────────────────────────
 def check_and_show_license(app: QApplication) -> Optional[LicenseResult]:
-    lic=check_license()
-    if lic.valid: return lic
-    holder=[None]
-    dlg=LicenseDialog()
-    def on_acc(r): holder[0]=r; dlg.accept()
-    dlg.license_accepted.connect(on_acc); dlg.exec()
-    return holder[0]
+    """
+    בודק רישיון קיים. אם תקף — מחזיר LicenseResult.
+    אם לא — מציג חלון רישיון ומחכה להפעלה.
+    מחזיר None אם המשתמש סגר בלי לרשום.
+    """
+    # בדוק קאש קודם
+    lic = check_license()
+    if lic.valid:
+        return lic
+
+    # הצג חלון רישיון
+    result_holder = [None]
+    dialog = LicenseDialog()
+
+    def on_accepted(lic_result):
+        result_holder[0] = lic_result
+        dialog.accept()
+
+    dialog.license_accepted.connect(on_accepted)
+    dialog.exec()
+    return result_holder[0]
