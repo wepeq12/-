@@ -719,7 +719,7 @@ class LicenseDialog(QDialog):
             }
             QPushButton:hover { color: #22d3b0; border-color: #22d3b0; }
         """)
-        support_btn.clicked.connect(lambda: webbrowser.open(SUPPORT_LINK))
+        support_btn.clicked.connect(lambda _: webbrowser.open(SUPPORT_LINK))
         lay.addWidget(support_btn)
 
         return sb
@@ -966,7 +966,7 @@ class LicenseDialog(QDialog):
 
         go_buy = QPushButton("← חזרה לרכישה")
         go_buy.setStyleSheet(btn_style(bg="#0D1117", fg="#6B7280", hover="#111827", fs=12, pad="10px"))
-        go_buy.clicked.connect(lambda: self._switch_page("buy"))
+        go_buy.clicked.connect(lambda _: self._switch_page("buy"))
         lay.addWidget(go_buy)
 
         return page
@@ -1006,7 +1006,7 @@ class LicenseDialog(QDialog):
                 f"{plan['emoji']} {plan['name']} | {dur_label} | ₪{p['ils']:,} (~${p['usd']:,} USDT)"
             )
 
-    def _do_buy(self):
+    def _do_buy(self, _checked=False):
         tg    = self._tg_input.text().strip().lstrip("@")
         gmail = self._gmail_input.text().strip()
         if not tg and not gmail:
@@ -1056,7 +1056,7 @@ class LicenseDialog(QDialog):
                 f"לא ניתן ליצור קישור תשלום:\n{result.get('error', '')}\n\nצור קשר: @experu_support"
             )
 
-    def _do_activate(self):
+    def _do_activate(self, _checked=False):
         key = self._key_input.text().strip()
         if not key:
             self._activate_status.setText("⚠️ הכנס מפתח")
