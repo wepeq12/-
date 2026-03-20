@@ -29,7 +29,7 @@ SERVER_URL      = "https://lucid-strength-production.up.railway.app"
 SUPPORT_LINK    = "https://t.me/experu_support"
 LICENSE_FILE    = Path(__file__).parent / "license.key"
 CACHE_FILE      = Path(__file__).parent / ".lic_cache"
-TRIAL_USED_FILE = Path(__file__).parent / ".trial_used"   # ← חד פעמי
+TRIAL_USED_FILE = Path(__file__).parent / ".trial_used"  # גיבוי מקומי בלבד
 CACHE_TTL_HOURS = 12
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -137,10 +137,37 @@ def get_hwid() -> str:
     return hashlib.sha256("|".join(parts).encode()).hexdigest()[:32]
 
 def trial_used() -> bool:
+    """בודק ע"פ HWID מהשרת — לא קובץ מקומי. אם השרת לא זמין — גיבוי מקומי."""
+    hwid = get_hwid()
+    if REQUESTS_OK:
+        try:
+            r = _req.post(f"{SERVER_URL}/trial/check",
+                json={"hwid": hwid}, timeout=6)
+            data = r.json()
+            used = data.get("used", False)
+            # עדכן גיבוי מקומי
+            if used:
+                if not TRIAL_USED_FILE.exists():
+                    TRIAL_USED_FILE.write_text("server_confirmed")
+            else:
+                # אם השרת אומר לא שומש — מחק קובץ מקומי ישן
+                if TRIAL_USED_FILE.exists():
+                    TRIAL_USED_FILE.unlink()
+            return used
+        except Exception:
+            pass  # fallback למקומי
     return TRIAL_USED_FILE.exists()
 
 def mark_trial_used(tg_username: str):
-    TRIAL_USED_FILE.write_text(json.dumps({"tg": tg_username, "at": datetime.datetime.utcnow().isoformat()}))
+    """שומר גיבוי מקומי בלבד — הרשומה האמיתית נשמרת בשרת"""
+    try:
+        TRIAL_USED_FILE.write_text(json.dumps({
+            "tg": tg_username,
+            "hwid": get_hwid(),
+            "at": datetime.datetime.utcnow().isoformat()
+        }))
+    except Exception:
+        pass
 
 class LicenseResult:
     def __init__(self, valid=False, plan="", plan_info=None, expires_at="",
@@ -203,7 +230,7 @@ def send_welcome_webhook(result: LicenseResult, contact=""):
         except Exception: pass
     threading.Thread(target=_go, daemon=True).start()
 
-BOT_TOKEN = "8734617598:AAGO8xCtaLYcrDv_zdTTbk9snFcwpy3vPDE"
+BOT_TOKEN = "8605591762:AAEpvopxifsmtvFatvdSo8hddf0GJG-eoEM"
 ADMIN_TG_ID = "8525975054"
 
 def request_trial(tg_username: str):
