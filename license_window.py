@@ -203,10 +203,31 @@ def send_welcome_webhook(result: LicenseResult, contact=""):
         except Exception: pass
     threading.Thread(target=_go, daemon=True).start()
 
+BOT_TOKEN = "8734617598:AAGO8xCtaLYcrDv_zdTTbk9snFcwpy3vPDE"
+ADMIN_TG_ID = "8525975054"
+
 def request_trial(tg_username: str):
+    """שולח בקשת ניסיון: מודיע לאדמין + מנסה דרך השרת"""
     def _go():
+        # 1. שלח הודעה לאדמין דרך הבוט
         try:
-            _req.post(f"{SERVER_URL}/trial", json={"tg": tg_username, "hwid": get_hwid()}, timeout=8)
+            msg = (
+                f"🎁 *בקשת ניסיון חינם חדשה!*\n\n"
+                f"👤 יוזר: @{tg_username}\n"
+                f"💻 HWID: `{get_hwid()[:16]}...`\n"
+                f"📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+                f"הפק רישיון: /grant starter 3d {tg_username}"
+            )
+            _req.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={"chat_id": ADMIN_TG_ID, "text": msg, "parse_mode": "Markdown"},
+                timeout=8
+            )
+        except Exception: pass
+        # 2. נסה גם דרך השרת
+        try:
+            _req.post(f"{SERVER_URL}/trial",
+                json={"tg": tg_username, "hwid": get_hwid()}, timeout=8)
         except Exception: pass
     threading.Thread(target=_go, daemon=True).start()
 
@@ -243,7 +264,7 @@ class PlanCard(QFrame):
         self.plan = plan
         self._cur_dur = "1m"
         self.setCursor(QCursor(Qt.PointingHandCursor))
-        self.setFixedWidth(195)
+        self.setFixedWidth(175)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._build()
         self._set_border(False)
@@ -352,7 +373,7 @@ class LifetimeCard(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCursor(QCursor(Qt.PointingHandCursor))
-        self.setFixedWidth(195)
+        self.setFixedWidth(175)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._build()
         self.setStyleSheet("QFrame { background: #0D1117; border: 1px solid #2a2010; border-radius: 12px; }")
@@ -487,7 +508,7 @@ class TrialDialog(QDialog):
             return
         mark_trial_used(tg)
         request_trial(tg)
-        self._status.setText(f"🎉 נשלח! בדוק את @{tg} בטלגרם תוך דקה")
+        self._status.setText(f"🎉 הבקשה נשלחה לאדמין! תקבל מפתח ל-@{tg} תוך כמה דקות")
         self._status.setStyleSheet("color: #4ade80; font-size: 12px; font-weight: 700;")
         QTimer.singleShot(2500, self.accept)
 
@@ -564,7 +585,7 @@ class LicenseDialog(QDialog):
                 QPushButton:checked { background: #0D2420; color: #22d3b0; font-weight: 700; }
                 QPushButton:hover:!checked { background: #111827; color: #E2E8F0; }
             """)
-            btn.clicked.connect(lambda _, k=key: self._switch_page(k))
+            btn.pressed.connect(lambda k=key: self._switch_page(k))
             self._nav_btns[key] = btn
             ly.addWidget(btn)
 
@@ -630,8 +651,21 @@ class LicenseDialog(QDialog):
 
     def _switch_page(self, key):
         pages = {"buy": 0, "activate": 1}
+        active_style = """
+            QPushButton {
+                background: #0D2420; color: #22d3b0; font-weight: 700;
+                text-align: right; padding: 10px 12px;
+                border-radius: 8px; font-size: 13px; border: none;
+            }"""
+        inactive_style = """
+            QPushButton {
+                background: transparent; color: #6B7280;
+                text-align: right; padding: 10px 12px;
+                border-radius: 8px; font-size: 13px; border: none;
+            }
+            QPushButton:hover { background: #111827; color: #E2E8F0; }"""
         for k, btn in self._nav_btns.items():
-            btn.setChecked(k == key)
+            btn.setStyleSheet(active_style if k == key else inactive_style)
         self._stack.setCurrentIndex(pages[key])
 
     # ────────────────────────────────────────
@@ -696,10 +730,12 @@ class LicenseDialog(QDialog):
         outer.addWidget(dur_wrap)
         outer.addSpacing(16)
 
-        # ── כרטיסי תוכניות ──
-        cards_row = QHBoxLayout()
+        # ── כרטיסי תוכניות (בתוך scroll אופקי) ──
+        cards_container = QWidget()
+        cards_container.setStyleSheet("QWidget { background: transparent; }")
+        cards_row = QHBoxLayout(cards_container)
         cards_row.setSpacing(10)
-        cards_row.setContentsMargins(0, 0, 0, 0)
+        cards_row.setContentsMargins(4, 4, 4, 4)
 
         self._plan_cards = {}
         for pk, pd in PLANS.items():
@@ -712,8 +748,27 @@ class LicenseDialog(QDialog):
         lt.clicked.connect(self._on_plan)
         self._plan_cards["lifetime"] = lt
         cards_row.addWidget(lt)
+        cards_row.addStretch()
 
-        outer.addLayout(cards_row, 1)
+        from PySide6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidget(cards_container)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setMinimumHeight(400)
+        scroll.setStyleSheet("""
+            QScrollArea { border: none; background: transparent; }
+            QScrollBar:horizontal {
+                height: 6px; background: #0D1117; border-radius: 3px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #22d3b0; border-radius: 3px; min-width: 40px;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+        """)
+
+        outer.addWidget(scroll, 1)
         outer.addSpacing(16)
 
         # ── פרטי משלוח ──
