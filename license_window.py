@@ -230,7 +230,8 @@ def send_welcome_webhook(result: LicenseResult, contact=""):
         except Exception: pass
     threading.Thread(target=_go, daemon=True).start()
 
-BOT_TOKEN = "8605591762:AAEpvopxifsmtvFatvdSo8hddf0GJG-eoEM"
+BOT_TOKEN    = "8649969883:AAGQMI24k2T3sTjc9gogYeRtdayOePjqOBc"
+BOT_USERNAME = "ExperuTG_bot"
 ADMIN_TG_ID = "8525975054"
 
 def request_trial(tg_username: str):
@@ -572,6 +573,7 @@ class LicenseDialog(QDialog):
         self._stack.setStyleSheet("background: #07090F;")
         self._stack.addWidget(self._build_buy_page())      # 0
         self._stack.addWidget(self._build_activate_page()) # 1
+        self._stack.addWidget(self._build_success_page())  # 2
         root.addWidget(self._stack, 1)
         self._switch_page("buy")
 
@@ -599,7 +601,7 @@ class LicenseDialog(QDialog):
         ly.addWidget(sep)
 
         self._nav_btns = {}
-        for key, label in [("buy", "🛒  רכישת תוכנית"), ("activate", "🔑  יש לי מפתח גישה")]:
+        for key, label in [("buy", "🛒  רכישת תוכנית"), ("activate", "🔑  יש לי מפתח גישה"), ("success", "")]:
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setFixedHeight(42)
@@ -677,7 +679,7 @@ class LicenseDialog(QDialog):
         # בפועל הסימון נשמר ב-TRIAL_USED_FILE
 
     def _switch_page(self, key):
-        pages = {"buy": 0, "activate": 1}
+        pages = {"buy": 0, "activate": 1, "success": 2}
         active_style = """
             QPushButton {
                 background: #0D2420; color: #22d3b0; font-weight: 700;
@@ -951,6 +953,164 @@ class LicenseDialog(QDialog):
         return page
 
     # ────────────────────────────────────────
+    # SUCCESS PAGE
+    # ────────────────────────────────────────
+    def _build_success_page(self):
+        page = QWidget()
+        page.setStyleSheet("QWidget { background: #07090F; }")
+        ly = QVBoxLayout(page)
+        ly.setContentsMargins(50, 30, 50, 30)
+        ly.setSpacing(0)
+
+        # אייקון ✓
+        ring = QLabel("✓")
+        ring.setFixedSize(72, 72)
+        ring.setAlignment(Qt.AlignCenter)
+        ring.setStyleSheet(
+            "color: #4ade80; font-size: 30px; font-weight: 900;"
+            "background: rgba(74,222,128,0.08); border: 2px solid #4ade80;"
+            "border-radius: 36px;"
+        )
+        row_icon = QHBoxLayout()
+        row_icon.addStretch(); row_icon.addWidget(ring); row_icon.addStretch()
+        ly.addLayout(row_icon)
+        ly.addSpacing(16)
+
+        # כותרת
+        t = QLabel("קישור התשלום נפתח בדפדפן!")
+        t.setStyleSheet("color: #F8FAFC; font-size: 20px; font-weight: 900; background: transparent; border: none;")
+        t.setAlignment(Qt.AlignCenter)
+        ly.addWidget(t)
+        ly.addSpacing(6)
+
+        sub = QLabel("אחרי אישור התשלום — פתח את הבוט\nוהמפתח יגיע לטלגרם שלך אוטומטית")
+        sub.setStyleSheet("color: #6B7280; font-size: 12px; background: transparent; border: none;")
+        sub.setAlignment(Qt.AlignCenter)
+        sub.setWordWrap(True)
+        ly.addWidget(sub)
+        ly.addSpacing(20)
+
+        # סיכום הזמנה
+        order_f = QFrame()
+        order_f.setStyleSheet("QFrame { background: #0D1117; border: 1px solid #1E2D3D; border-radius: 12px; }")
+        o_ly = QVBoxLayout(order_f)
+        o_ly.setContentsMargins(18, 14, 18, 14)
+        o_ly.setSpacing(8)
+
+        self._s_plan = self._make_order_row(o_ly, "📦 תוכנית", "—", first=True)
+        self._s_dur  = self._make_order_row(o_ly, "⏳ תקופה",  "—")
+        self._s_amt  = self._make_order_row(o_ly, "💰 סכום",   "—")
+
+        ly.addWidget(order_f)
+        ly.addSpacing(18)
+
+        # 3 שלבים
+        steps = [
+            ("1", True,  "תשלם בדפדפן שנפתח",            "סיים את תהליך התשלום בדפדפן"),
+            ("2", False, "פתח את הבוט — לחץ START",       "הבוט יזהה אותך וישלח המפתח אוטומטית"),
+            ("3", False, "הכנס 'יש לי מפתח גישה'",        "הדבק את המפתח שקיבלת ולחץ הפעל"),
+        ]
+
+        for num, active, title, desc in steps:
+            sf = QFrame()
+            if active:
+                sf.setStyleSheet("QFrame { background: rgba(34,211,176,0.05); border: 1px solid rgba(34,211,176,0.35); border-radius: 10px; }")
+            else:
+                sf.setStyleSheet("QFrame { background: #0D1117; border: 1px solid #1E2D3D; border-radius: 10px; }")
+            s_row = QHBoxLayout(sf)
+            s_row.setContentsMargins(14, 11, 14, 11)
+            s_row.setSpacing(12)
+
+            nl = QLabel(num)
+            nl.setFixedSize(26, 26)
+            nl.setAlignment(Qt.AlignCenter)
+            if active:
+                nl.setStyleSheet("color: #07090F; background: #22d3b0; border-radius: 13px; font-size: 12px; font-weight: 900; border: none;")
+            else:
+                nl.setStyleSheet("color: #6B7280; background: #111827; border: 1px solid #1E2D3D; border-radius: 13px; font-size: 12px; font-weight: 700;")
+
+            tc = QVBoxLayout()
+            tc.setSpacing(2)
+            tl = QLabel(title)
+            tl.setStyleSheet(f"color: {'#F8FAFC' if active else '#CBD5E1'}; font-size: 13px; font-weight: 600; background: transparent; border: none;")
+            dl = QLabel(desc)
+            dl.setStyleSheet("color: #6B7280; font-size: 11px; background: transparent; border: none;")
+            tc.addWidget(tl)
+            tc.addWidget(dl)
+
+            s_row.addWidget(nl)
+            s_row.addLayout(tc, 1)
+            ly.addWidget(sf)
+            ly.addSpacing(7)
+
+        ly.addSpacing(10)
+        ly.addStretch()
+
+        # כפתור פתיחת הבוט
+        bot_btn = QPushButton("✈  פתח את הבוט וקבל את המפתח")
+        bot_btn.setFixedHeight(50)
+        bot_btn.setStyleSheet("""
+            QPushButton {
+                background: #22d3b0; color: #07090F;
+                font-size: 14px; font-weight: 900;
+                border-radius: 12px; border: none;
+            }
+            QPushButton:hover { background: #16a085; }
+        """)
+        bot_btn.pressed.connect(lambda: webbrowser.open(f"https://t.me/{BOT_USERNAME}"))
+        ly.addWidget(bot_btn)
+        ly.addSpacing(8)
+
+        # כפתור מעבר להפעלת מפתח
+        act_btn = QPushButton("🔑  כבר יש לי מפתח — הפעל")
+        act_btn.setFixedHeight(40)
+        act_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent; color: #6B7280;
+                font-size: 13px; font-weight: 600;
+                border: 1px solid #1E2D3D; border-radius: 10px;
+            }
+            QPushButton:hover { color: #22d3b0; border-color: #22d3b0; }
+        """)
+        act_btn.pressed.connect(lambda: self._switch_page("activate"))
+        ly.addWidget(act_btn)
+        ly.addSpacing(8)
+
+        note = QLabel("לא קיבלת? פנה לתמיכה: @experu_support")
+        note.setStyleSheet("color: #374151; font-size: 10px; background: transparent; border: none;")
+        note.setAlignment(Qt.AlignCenter)
+        ly.addWidget(note)
+
+        return page
+
+    def _make_order_row(self, parent_layout, label: str, value: str, first=False):
+        if not first:
+            sep = QFrame()
+            sep.setFixedHeight(1)
+            sep.setStyleSheet("background: #1E2D3D; border: none;")
+            parent_layout.addWidget(sep)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        lbl = QLabel(label)
+        lbl.setStyleSheet("color: #6B7280; font-size: 12px; background: transparent; border: none;")
+        val = QLabel(value)
+        val.setStyleSheet("color: #F8FAFC; font-size: 13px; font-weight: 600; background: transparent; border: none;")
+        row.addWidget(lbl)
+        row.addStretch()
+        row.addWidget(val)
+        parent_layout.addLayout(row)
+        return val  # מחזיר ref לעדכון מאוחר
+
+    def _success_update(self, plan_name: str, dur_label: str, p: dict):
+        """עדכן את הפרטים בדף הצלחה"""
+        if hasattr(self, "_s_plan"):
+            self._s_plan.setText(plan_name)
+        if hasattr(self, "_s_dur"):
+            self._s_dur.setText(dur_label)
+        if hasattr(self, "_s_amt"):
+            self._s_amt.setText(f"₪{p['ils']:,}  (~${p['usd']:,})")
+
+    # ────────────────────────────────────────
     # LOGIC
     # ────────────────────────────────────────
     def _on_plan(self, plan_key: str):
@@ -1012,14 +1172,8 @@ class LicenseDialog(QDialog):
         self._buy_btn.setText("💎  קנה עכשיו — שלם בקריפטו")
         if result.get("success"):
             webbrowser.open(result["payment_url"])
-            QMessageBox.information(self, "💳 תשלום קריפטו",
-                f"נפתח דף תשלום ייחודי שלך בדפדפן!\n\n"
-                f"📦 תוכנית: {plan_name} | {dur_label}\n"
-                f"💰 סכום: ₪{p['ils']:,} (~${p['usd']:,} USDT)\n\n"
-                f"⚡ אחרי אישור התשלום תקבל מפתח לטלגרם/Gmail שלך.\n"
-                f"לחץ 'יש לי מפתח גישה' בסרגל הצדי."
-            )
-            self._switch_page("activate")
+            self._success_update(plan_name, dur_label, p)
+            self._switch_page("success")
         else:
             QMessageBox.critical(self, "❌ שגיאה",
                 f"לא ניתן ליצור קישור תשלום:\n{result.get('error','')}\n\nצור קשר: @experu_support")
